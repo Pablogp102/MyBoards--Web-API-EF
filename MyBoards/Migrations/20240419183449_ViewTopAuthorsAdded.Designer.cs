@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using MyBoards.Entities;
 
@@ -11,9 +12,11 @@ using MyBoards.Entities;
 namespace MyBoards.Migrations
 {
     [DbContext(typeof(MyBoardsContext))]
-    partial class MyBoardsContextModelSnapshot : ModelSnapshot
+    [Migration("20240419183449_ViewTopAuthorsAdded")]
+    partial class ViewTopAuthorsAdded
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -309,29 +312,6 @@ namespace MyBoards.Migrations
                         .HasForeignKey("MyBoards.Entities.Address", "UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
-
-                    b.OwnsOne("MyBoards.Entities.Coordinate", "Coordinate", b1 =>
-                        {
-                            b1.Property<Guid>("AddressId")
-                                .HasColumnType("uniqueidentifier");
-
-                            b1.Property<decimal?>("Latitude")
-                                .HasPrecision(18, 7)
-                                .HasColumnType("decimal(18,7)");
-
-                            b1.Property<decimal?>("Longitude")
-                                .HasPrecision(18, 7)
-                                .HasColumnType("decimal(18,7)");
-
-                            b1.HasKey("AddressId");
-
-                            b1.ToTable("Addresses");
-
-                            b1.WithOwner()
-                                .HasForeignKey("AddressId");
-                        });
-
-                    b.Navigation("Coordinate");
 
                     b.Navigation("User");
                 });

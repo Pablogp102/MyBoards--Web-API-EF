@@ -9,17 +9,25 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.EntityFrameworkCore.SqlServer.Storage.Internal;
 using System.Reflection;
 using System.Linq.Expressions;
+using Microsoft.AspNetCore.Http.Json;
+using System.Text.Json.Serialization;
+using System.Xml;
+
+
 
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+builder.Services.Configure<JsonOptions>(options => 
+{ options.SerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles; options.SerializerOptions.IncludeFields = true; 
+});
 
 builder.Services.AddDbContext<MyBoardsContext>(
-    option => option.UseSqlServer(builder.Configuration.GetConnectionString("MyBoardsConnectionString"))
+    option => option
+    //.UseLazyLoadingProxies()
+    .UseSqlServer(builder.Configuration.GetConnectionString("MyBoardsConnectionString"))
     );
 
 var app = builder.Build();
@@ -74,21 +82,16 @@ if (!users.Any())
 }
 app.MapGet("data", async (MyBoardsContext db) =>
 {
-    var authorsCommentsCountsQuery = db.Comments
-        .GroupBy(c => c.AuthorId)
-        .Select(g => new { g.Key, Count = g.Count() });
+    var withAddress = true;
+    var user = db.Users
+    .First(u => u.Id == Guid.Parse("EBFBD70D-AC83-4D08-CBC6-08DA10AB0E61"));
 
-
-
-    var authorsCommentsCounts = await authorsCommentsCountsQuery.ToListAsync();
-
-
-    var topAuthor = authorsCommentsCounts
-    .First(a => a.Count == authorsCommentsCounts.Max(acc => acc.Count));
-
-    var userDetails = db.Users.First(u => u.Id == topAuthor.Key);
-    
-    return new { userDetails, commentCout = topAuthor.Count };
+    if (withAddress)
+    {
+        var result = new { FullName = user.FullName, Address = $"{user.Address.Street} {user.Address.City}" };
+        return result;
+    }
+    return new { FullName = user.FullName, Address = "-" };
 });
 
 app.MapPost("update", async (MyBoardsContext db) =>
@@ -104,50 +107,43 @@ app.MapPost("update", async (MyBoardsContext db) =>
     return epic;
 });
 
-app.MapPost("create/{className}/{id}/{value}", async (MyBoardsContext db, string className, string id, string value) =>
+app.MapPost("create", async (MyBoardsContext db) =>
 {
-    // SprawdŸ, czy istnieje klasa o podanej nazwie
-    var classType = Type.GetType($"MyBoards.Entities.{className}");
-
-    if (classType == null)
+    var address = new Address()
     {
-        return $"Klasa {className} nie istnieje.";
-    }
+        Id = Guid.Parse("b323dd7c-776a-4cf6-a92a-12df154b4a2c"),
+        City = "Kraków",
+        Country = "Poland",
+        Street = "D³uga"
+    };
 
-    // SprawdŸ, czy podane ID jest unikalne
-    var existingEntity = await db.FindAsync(classType, int.Parse(id));
-    if (existingEntity != null)
+    var user = new User()
     {
-        return $"Encja o identyfikatorze {id} ju¿ istnieje w klasie {className}.";
-    }
+        Email = "user@test.com",
+        FullName = "Test User",
+        Address = address
+    };
 
-    // Utwórz now¹ instancjê encji
-    var entity = Activator.CreateInstance(classType);
-
-    // Ustaw wartoœæ dla w³aœciwoœci "Value" encji
-    var valueProperty = classType.GetProperty("Value");
-    valueProperty.SetValue(entity, value);
-
-    // Ustawiæ pobieranie w³asciwosci z poszczegolnych klas tak aby mozna bylo ustawiaæ ich wartoœci z poziomu swaggera :D
-
-
-
-
-
-    // Dodaj encjê do kontekstu bazy danych
-    db.Add(entity);
+    db.Users.Add(user);
     await db.SaveChangesAsync();
-
-    return $"Nowa encja zosta³a utworzona w klasie {className} z identyfikatorem {id} i wartoœci¹ {value}.";
+    return user;
 });
 
+app.MapDelete("delete", async (MyBoardsContext db) => 
+{
+    var user = await db.Users
+    .Include(u => u.Comments)
+    .FirstAsync(u => u.Id == Guid.Parse("4EBB526D-2196-41E1-CBDA-08DA10AB0E61"));
 
 
-
+    
+    db.Remove(user);
+    await db.SaveChangesAsync();
+});
 
 app.MapPost("delete/{className}/{id}", async (MyBoardsContext db, string className, string id) =>
 {
-    // SprawdŸ, czy istnieje klasa o podanej nazwie
+   
     var classType = Type.GetType($"MyBoards.Entities.{className}");
     
     if (classType == null)
@@ -155,7 +151,7 @@ app.MapPost("delete/{className}/{id}", async (MyBoardsContext db, string classNa
         return $"Klasa {className} nie istnieje.";
     }
 
-    // Pobierz w³aœciwoœæ Id z klasy i jej typ
+  
     var idProperty = classType.GetProperty("Id");
     if (idProperty == null)
     {
@@ -163,17 +159,33 @@ app.MapPost("delete/{className}/{id}", async (MyBoardsContext db, string classNa
     }
     var idType = idProperty.PropertyType;
 
-    // Parsuj identyfikator do odpowiedniego typu
+   
     object entityId;
     try
     {
-        entityId = Convert.ChangeType(id, idType);
+        if (idType == typeof(Guid))
+        {
+            entityId = Guid.Parse(id);
+        }
+        else if (idType == typeof(int))
+        {
+            entityId = int.Parse(id);
+        }
+        else if (idType == typeof(string))
+        {
+            entityId = id;
+        }
+        
+        else
+        {
+            throw new NotSupportedException($"Typ identyfikatora {idType} nie jest obs³ugiwany.");
+        }
     }
-    catch(FormatException)
+    catch (FormatException)
     {
         return $"Nieprawid³owy format identyfikatora dla klasy {className}.";
     }
-    catch(InvalidCastException)
+    catch (InvalidCastException)
     {
         return $"Nie mo¿na przekonwertowaæ identyfikatora do w³aœciwego typu dla klasy {className}.";
     }
@@ -182,12 +194,11 @@ app.MapPost("delete/{className}/{id}", async (MyBoardsContext db, string classNa
         return $"Przekroczono zakres dla identyfikatora klasy {className}.";
     }
 
-    // Spróbuj znaleŸæ encjê o podanym identyfikatorze w bazie danych
+
     var findMethod = typeof(DbContext).GetMethod("Find", new Type[] { typeof(object[])}).MakeGenericMethod(classType);
     var entity = findMethod.Invoke(db, new object[] { new[] { entityId } });
 
 
-    // Spróbuj znaleŸæ encjê o podanej wartoœci w bazie danych
   
     if (entity == null)
     {
@@ -196,7 +207,7 @@ app.MapPost("delete/{className}/{id}", async (MyBoardsContext db, string classNa
     }
     else
     {
-        // Usuñ encjê
+     
         db.Remove(entity);
         await db.SaveChangesAsync();
         return $"Encja o wartoœci {id} zosta³a usuniêta z klasy {className}.";

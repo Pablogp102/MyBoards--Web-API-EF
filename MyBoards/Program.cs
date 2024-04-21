@@ -12,6 +12,7 @@ using System.Linq.Expressions;
 using Microsoft.AspNetCore.Http.Json;
 using System.Text.Json.Serialization;
 using System.Xml;
+using MyBoards.Dto;
 
 
 
@@ -80,6 +81,90 @@ if (!users.Any())
 
     dbContext.SaveChanges();
 }
+
+
+
+app.MapGet("pagination", async (MyBoardsContext db) =>
+{
+// user imput 
+var filter = "a";
+string sortBY = "FullName";
+bool sortByDescending = false;
+int pageNumber = 1;
+int pageSize = 10;
+//
+
+var query = db.Users
+    .Where(u => filter == null ||
+    (u.Email.ToLower().Contains(filter.ToLower()) || 
+     u.FullName.ToLower().Contains(filter.ToLower()))
+     );
+
+var totalCount = query.Count();
+
+
+if (sortBY != null)
+{
+    var columnsSelector = new Dictionary<string, Expression<Func<User, object>>>
+    {
+        { nameof(User.Email), user => user.Email },
+        { nameof(User.FullName), user => user.FullName },
+
+    };
+
+    var sortByExpression = columnsSelector[sortBY];
+
+    query = sortByDescending
+    ? query.OrderByDescending(sortByExpression)
+    : query.OrderBy(sortByExpression);
+    query.OrderBy(sortByExpression);
+}
+
+    var result = query.Skip(pageSize * (pageNumber - 1))
+                      .Take(pageSize)
+                      .ToList();
+    var pagedResult = new PagedResult<User>(result, totalCount, pageSize, pageNumber);
+
+    return pagedResult;
+
+});
+
+app.MapGet("data1", async (MyBoardsContext db) =>
+{
+    var userComments = await db.Users
+        .Include(u => u.Address)
+        .Include(u => u.Comments)
+        .Where(u => u.Address.Country == "Albania")
+        .SelectMany(u => u.Comments.Select(c => new
+        {
+            FullName = u.FullName,
+            Comment = c.Message
+        }))
+        .ToListAsync();
+
+    return userComments;
+});
+
+app.MapGet("data2", async (MyBoardsContext db) =>
+{
+    var users = await db.Users
+               .Include(u => u.Address)
+               .Include(u => u.Comments)
+               .Where(u => u.Address.Country == "Albania")
+               .ToListAsync();
+
+    foreach(var user in users)
+    {
+        
+        foreach(var comment in user.Comments)
+        {
+            //Process
+        }
+    }
+
+
+});
+
 app.MapGet("data", async (MyBoardsContext db) =>
 {
     var withAddress = true;
